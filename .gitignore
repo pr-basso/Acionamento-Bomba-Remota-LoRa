@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+
+# Arduino IDE
+build/
+*.elf
+*.hex
+*.bin
+
+# IDE
+.vscode/
+*.swp
+*.swo
+*~
+
+# Claude Code
+memory/
+.claude/
