@@ -1,4 +1,4 @@
-# Acionamento Bomba Remora LoRa
+# Acionamento Bomba Remota LoRa
 
 Firmware Arduino para acionamento remoto de bomba d'água via rádio LoRa. Um nó sensor de boia (**Node A**) lê o nível de água e envia comandos por LoRa para um ou mais nós controladores de bomba (**Node B/C/D**), que acionam módulos de relé.
 
