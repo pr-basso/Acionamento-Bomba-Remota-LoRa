@@ -90,6 +90,44 @@ arduino-cli monitor -p /dev/cu.usbserial-XXXX -b 115200
 
 Em `V8.0/Boia/Boia.ino`, adicione o endereço do novo nó em `PEER_LIST` e grave a nova placa Bomba com `MY_ADDRESS` igual a esse endereço. Nenhuma outra alteração é necessária.
 
+## Telemetria (LoRa → MQTT)
+
+Rede **separada** da rede Boia/Bomba (920 MHz em vez de 915 MHz), com placas **Heltec WiFi LoRa 32 V4**. Sensores enviam leituras por LoRa a um gateway, que publica no broker Mosquitto via Ethernet.
+
+```
+Telemetria/
+├── common/TelemetriaConfig.h   # rádio + protocolo (fonte única, via link simbólico)
+├── Gateway/Gateway.ino         # LoRa -> MQTT, Ethernet W5500
+└── SensorNivel/SensorNivel.ino # nível da caixa (JSN-SR04T), bateria + deep sleep
+```
+
+**Protocolo** (mesmo formato da V8.0): `N1|GW|SEQ|TEL|pct=62;dist=87;vbat=3.98;err=ok|CRC`, respondido com `GW|N1|SEQ|ACK|OK|CRC`. O sensor tenta até 3 vezes; o gateway descarta reenvios do mesmo `SEQ` (só repete o ACK).
+
+**Tópicos MQTT:**
+
+| Tópico                  | Conteúdo                                                      |
+|-------------------------|---------------------------------------------------------------|
+| `lora/<SRC>/<chave>`    | Um tópico por campo do payload, só o valor, retido. Ex. `lora/N1/pct` = `62`, `lora/N1/vbat` = `3.98` |
+| `lora/gateway/status`   | `online` / `offline` (LWT), retido                            |
+| `lora/gateway/info`     | JSON com uptime, IP e contadores, a cada 60 s                 |
+
+**Ligações (ajuste nos `#define` se a sua placa diferir):**
+
+| Gateway — W5500 | GPIO |   | Sensor — JSN-SR04T | GPIO |
+|-----------------|------|---|--------------------|------|
+| SCK             | 47   |   | TRIG               | 47   |
+| MISO            | 48   |   | ECHO               | 48   |
+| MOSI            | 33   |   | VCC                | Vext (3,3 V) |
+| CS              | 34   |   | GND                | GND  |
+| INT             | 4    |   |                    |      |
+| RST             | 6    |   |                    |      |
+
+**Requisitos:** ESP32 Arduino core **3.x** (para `ETH.h` com W5500), biblioteca Heltec ESP32 Dev-Boards e **PubSubClient**. Antes de compilar o gateway, copie `Gateway/secrets.example.h` para `Gateway/secrets.h` e preencha o broker (o `secrets.h` fica fora do git).
+
+**Adicionar um sensor:** grave com outro `MY_ADDRESS` (ex. `N2`); o gateway publica em `lora/N2/<chave>` sem nenhuma alteração. Sensores de outro tipo seguem o mesmo formato `chave=valor`, ex. `temp=24.5;vbat=4.01` ou `va=220.1;vb=219.8;vc=221.0`. Para o display do gateway mostrar a unidade, inclua a chave na tabela `UNITS` do `Gateway.ino` (o MQTT sempre leva o número puro).
+
+**Display do gateway:** uma tela por sensor, em rodízio a cada 5 s, com RSSI, idade da última leitura, valores com unidade e `vbat` (útil para acompanhar a carga pelo painel solar da V4).
+
 ## Histórico de versões
 
 | Versão      | Principal mudança                                                                                      |

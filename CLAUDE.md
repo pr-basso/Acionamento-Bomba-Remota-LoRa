@@ -73,6 +73,15 @@ All nodes must use identical radio settings. They live in one place, `V8.0/commo
 
 **Adding a new pump node**: In `V8.0/Boia/Boia.ino`, add the node's address string to `PEER_LIST`. Flash the new Bomba board with `MY_ADDRESS` set to that address. No other changes needed.
 
+## Telemetria (LoRa → MQTT)
+
+Separate subsystem in `Telemetria/`, independent of the pump network, on **Heltec WiFi LoRa 32 V4** boards (ESP32-S3 + SX1262 + FEM; `WIFI_LORA_32_V4` and `USE_GC1109_PA`/`USE_KCT8103L_PA` come from the board selection).
+
+- `common/TelemetriaConfig.h` — radio params (920 MHz, SF9, BW125, CR4/5) and shared protocol helpers (`calcCRC`, `buildMsg`, `parseMsg`), symlinked into each sketch like V8.0's `LoraConfig.h`.
+- `Gateway/Gateway.ino` — receives `TEL`, replies `ACK` after `TX_GUARD_MS`, dedups by (SRC, SEQ), publishes each payload field as its own retained topic with the bare value (`lora/<SRC>/<key>`, e.g. `lora/N1/pct` = `62`), so new sensor types (temp, phase voltages) need no gateway change. OLED rotates one screen per known sensor (values with units from the `UNITS` table, plus `vbat`). W5500 on a **second SPI bus (SPI3_HOST)** via core 3.x `ETH.h`, because the LoRa SPI (GPIO 9–11) is not on the V4 headers. Broker config in gitignored `secrets.h` (template: `secrets.example.h`). Publishes queue in RAM (16) while MQTT is down.
+- `SensorNivel/SensorNivel.ino` — whole cycle runs in `setup()`: power JSN-SR04T via Vext, median of 5 readings, read VBAT (GPIO1, ADC_CTRL GPIO37 HIGH), send with up to 3 retries, deep sleep `SLEEP_MINUTES`. Payload `pct=..;dist=..;vbat=..;err=ok` (`err=eco;vbat=..` on failed reading; `err` always sent so the retained topic clears). `seq` lives in `RTC_DATA_ATTR`. Vext is held off during sleep with `gpio_hold_en` + `gpio_deep_sleep_hold_en`.
+- V4 reserved GPIOs: 1 (VBAT), 2/5/7/46 (FEM), 8–14 (LoRa), 17/18/21 (OLED), 19/20 (USB), 26–32 (flash/PSRAM), 36 (Vext), 37 (ADC_Ctrl).
+
 ## Version History Summary
 
 | Version | Key change |

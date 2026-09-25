@@ -16,3 +16,6 @@ build/
 # Claude Code
 memory/
 .claude/
+
+# Telemetria — credenciais
+Telemetria/Gateway/secrets.h
