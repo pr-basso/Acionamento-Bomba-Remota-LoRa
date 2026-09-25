@@ -26,6 +26,7 @@
 #include "LoRaWan_APP.h"
 #include "Arduino.h"
 #include "HT_SSD1306Wire.h"
+#include "LoraConfig.h"   // parâmetros de rádio compartilhados (../common)
 #include <EEPROM.h>
 
 // ── Identificação ──────────────────────────────────────────
@@ -37,19 +38,9 @@
 #define RELAY_ON   LOW    // lógica invertida — módulos azuis
 #define RELAY_OFF  HIGH
 
-// ── Parâmetros LoRa (idênticos ao Node A) ─────────────────
-#define RF_FREQUENCY          915000000
-#define TX_OUTPUT_POWER               2
-#define LORA_BANDWIDTH                0
-#define LORA_SPREADING_FACTOR         7
-#define LORA_CODINGRATE               1
-#define LORA_PREAMBLE_LENGTH          8
-#define LORA_SYMBOL_TIMEOUT           0
-#define LORA_IQ_INVERSION_ON      false
-
 // Tempo de guarda antes de enviar ACK.
 // O Node A abre RX no OnTxDone — que dispara ao fim do TX do CMD.
-// Com SF7/BW125 um pacote de ~35 bytes leva ~55ms no ar.
+// Com SF9/BW125 um pacote de ~35 bytes leva ~250ms no ar.
 // O Radio.Rx(0) leva ~1ms para estabilizar.
 // Aguardamos 100ms como margem segura antes de transmitir o ACK.
 #define TX_GUARD_MS  100

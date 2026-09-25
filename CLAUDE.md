@@ -53,10 +53,10 @@ SRC|DST|SEQ|TYPE|PAYLOAD|CRC
 
 ## LoRa Parameters (V8.0)
 
-All nodes must use identical radio settings:
+All nodes must use identical radio settings. They live in one place, `V8.0/common/LoraConfig.h`, included by both sketches via symlinks (`Boia/LoraConfig.h`, `Bomba/LoraConfig.h`) because Arduino only compiles files inside the sketch folder. Change radio params only there.
 - Frequency: 915 MHz
-- SF7, BW 125 kHz, CR 4/5, Preamble 8
-- TX power: 2 dBm
+- SF9, BW 125 kHz, CR 4/5, Preamble 8 (~250 ms airtime per packet)
+- TX power: 14 dBm
 - `LORA_IQ_INVERSION_ON = false`
 
 ## Key Architecture Points (V8.0)

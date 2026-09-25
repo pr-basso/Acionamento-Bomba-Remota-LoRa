@@ -25,6 +25,7 @@
 #include "LoRaWan_APP.h"
 #include "Arduino.h"
 #include "HT_SSD1306Wire.h"
+#include "LoraConfig.h"   // parâmetros de rádio compartilhados (../common)
 
 // ── Identificação ──────────────────────────────────────────
 #define MY_ADDRESS "A"
@@ -38,16 +39,6 @@ const char *PEER_LIST[] = { "B" };
 #define BOIA_VAZIO  LOW
 #define BOIA_CHEIO  HIGH
 
-// ── Parâmetros LoRa ────────────────────────────────────────
-#define RF_FREQUENCY          915000000
-#define TX_OUTPUT_POWER               14
-#define LORA_BANDWIDTH                0
-#define LORA_SPREADING_FACTOR         9
-#define LORA_CODINGRATE               1
-#define LORA_PREAMBLE_LENGTH          8
-#define LORA_SYMBOL_TIMEOUT           0
-#define LORA_IQ_INVERSION_ON      false
-
 // ── Temporização ──────────────────────────────────────────
 #define ACK_TIMEOUT_MS   6000
 #define MAX_RETRIES          5
@@ -56,7 +47,7 @@ const char *PEER_LIST[] = { "B" };
 #define MIN_PUMP_OFF_MS   5000
 // Intervalo entre envios para peers diferentes.
 // Deve ser maior que: tempo TX do CMD + TX_GUARD do peer + tempo TX do ACK
-// SF7/BW125: ~50ms por pacote. Margem generosa para garantir recepção.
+// SF9/BW125: ~250ms por pacote (~600ms no total). Margem generosa para garantir recepção.
 #define INTER_PEER_MS     2000
 
 // ── Protocolo ─────────────────────────────────────────────

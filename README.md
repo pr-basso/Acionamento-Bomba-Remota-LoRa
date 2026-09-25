@@ -37,16 +37,16 @@ SRC|DST|SEQ|TYPE|PAYLOAD|CRC
 
 ## Parâmetros de rádio LoRa (V8.0)
 
-Todos os nós devem usar exatamente a mesma configuração:
+Todos os nós devem usar exatamente a mesma configuração. Na V8.0 ela fica em um único arquivo, `V8.0/common/LoraConfig.h`, que as duas sketches incluem por link simbólico (`Boia/LoraConfig.h` e `Bomba/LoraConfig.h`):
 
 | Parâmetro        | Valor      |
 |-------------------|-----------|
 | Frequência         | 915 MHz   |
-| Spreading Factor   | SF7       |
+| Spreading Factor   | SF9       |
 | Bandwidth          | 125 kHz   |
 | Coding Rate        | 4/5       |
 | Preâmbulo          | 8         |
-| Potência TX        | 2 dBm     |
+| Potência TX        | 14 dBm    |
 | IQ Inversion       | desligado |
 
 ## Hardware
