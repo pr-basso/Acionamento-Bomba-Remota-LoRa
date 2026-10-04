@@ -32,7 +32,7 @@
 #include "TelemetriaConfig.h"   // rádio + protocolo compartilhados (../common)
 
 // ── Identificação — um endereço único por sensor ───────────
-#define MY_ADDRESS "N1"
+#define MY_ADDRESS "geral/reservatorio"
 
 // ── Hardware — confira na serigrafia da sua V4 ─────────────
 #define TRIG_PIN      47
@@ -213,6 +213,10 @@ bool sendWithAck(const char *payload) {
 void setup() {
   Serial.begin(115200);
   Mcu.begin(HELTEC_BOARD, SLOW_CLK_TPYE);
+  // Boot a frio (reset, gravação, falta de energia) zera a RTC: começa
+  // num seq aleatório, senão o gateway descarta 0001 como duplicado.
+  if (esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_TIMER)
+    seq = (uint16_t)esp_random();
   seq++;
 
   // ── Medição ───────────────────────────────────────────

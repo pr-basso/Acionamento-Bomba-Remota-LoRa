@@ -1,10 +1,11 @@
 /**
  * ============================================================
- *  GATEWAY DE TELEMETRIA — LoRa -> MQTT (Ethernet W5500)
- *  Hardware : Heltec WiFi LoRa 32 V4 + módulo W5500
+ *  GATEWAY DE TELEMETRIA — LoRa -> MQTT (Ethernet W5500 ou WiFi)
+ *  Hardware : Heltec WiFi LoRa 32 V4 (+ módulo W5500)
  *  Biblioteca: Heltec ESP32 Dev-Boards (LoRaWan_APP.h)
  *              ESP32 Arduino core 3.x (ETH.h com W5500)
  *              PubSubClient (knolleary)
+ *              OneWire + DallasTemperature (DS18B20)
  *
  *  FLUXO:
  *    Sensor --TEL--> Gateway --ACK--> Sensor
@@ -18,6 +19,13 @@
  *                          exigem mudança no gateway.
  *    <BASE>/gateway/status "online" / "offline" (LWT), retido
  *    <BASE>/gateway/info   JSON com uptime, IP e contadores (60 s)
+ *    geral/temperatura     DS18B20 do próprio gateway, °C (60 s), retido
+ *
+ *  DS18B20:
+ *    Temperatura ambiente no gateway (OneWire, pull-up 4,7k no DQ).
+ *    Conversão assíncrona: pede, lê 1 s depois — não trava o RX LoRa.
+ *    Leitura inválida (sensor desligado / 85 °C de power-on) não é
+ *    publicada; o display mostra "--".
  *
  *  DISPLAY:
  *    Uma tela por sensor, em rodízio a cada 5 s: RSSI, idade da
@@ -28,17 +36,35 @@
  *    o W5500 usa um segundo barramento (SPI3_HOST) em pinos livres.
  *    O LoRa fica sozinho no SPI global (FSPI).
  *
+ *  WiFi (bancada):
+ *    Com USE_WIFI definido abaixo, usa o WiFi da própria placa
+ *    (WIFI_SSID / WIFI_PASS em secrets.h) e ignora o W5500.
+ *
  *  CONFIGURAÇÃO:
  *    Copie secrets.example.h para secrets.h e preencha o broker.
  * ============================================================
  */
 
+// ── Interface de rede ──────────────────────────────────────
+// Definido: WiFi da placa (bancada). Comentado: Ethernet W5500.
+// #define USE_WIFI
+
 #include "LoRaWan_APP.h"
 #include "Arduino.h"
 #include "HT_SSD1306Wire.h"
+#ifdef USE_WIFI
+#include <WiFi.h>
+#define NET  WiFi
+#define NET_NAME "WiFi"
+#else
 #include <ETH.h>
+#define NET  ETH
+#define NET_NAME "ETH"
+#endif
 #include <SPI.h>
 #include <PubSubClient.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 #include "TelemetriaConfig.h"   // rádio + protocolo compartilhados (../common)
 #include "secrets.h"            // broker MQTT (não versionado)
 
@@ -50,11 +76,20 @@
 // 19/20 (USB), 26–32 (flash/PSRAM), 36 (Vext), 37 (ADC_Ctrl).
 #define ETH_SCK    47
 #define ETH_MISO   48
-#define ETH_MOSI   33
+#define ETH_MOSI   41
 #define ETH_CS     34
 #define ETH_INT     4
 #define ETH_RST     6
 #define ETH_SPI_MHZ 20
+// Força 10M half sem auto-negociação: este módulo não segura link a 100M
+// (sinal fraco no RJ45). Comente para voltar à auto-negociação.
+#define ETH_FORCE_10M
+
+// ── DS18B20 (temperatura do gateway) ──────────────────────
+#define TEMP_PIN        3                 // DQ, pull-up 4,7k para 3V3
+#define TEMP_TOPIC     "geral/temperatura"
+#define TEMP_EVERY_MS  60000
+#define TEMP_CONV_MS   1000               // 12 bits = 750 ms + folga
 
 // ── Temporização ──────────────────────────────────────────
 #define MQTT_RETRY_MS    5000
@@ -94,10 +129,15 @@ static volatile int  lastRssi  = 0;
 static volatile int  lastSnr   = 0;
 
 // ── Rede ──────────────────────────────────────────────────
-static volatile bool ethUp = false;
+static volatile bool netUp = false;
 static NetworkClient netClient;
 static PubSubClient  mqtt(netClient);
 static char topicStatus[TOPIC_SIZE];
+
+// ── DS18B20 ───────────────────────────────────────────────
+static OneWire           oneWire(TEMP_PIN);
+static DallasTemperature tempSensor(&oneWire);
+static float             gwTemp = NAN;   // última leitura válida
 
 // ── Estado da aplicação ───────────────────────────────────
 struct QueuedMsg { char topic[TOPIC_SIZE]; char value[VALUE_SIZE]; };
@@ -144,17 +184,26 @@ void OnRxError(void)   { evRxError = true; }
 
 void onNetEvent(arduino_event_id_t event) {
   switch (event) {
+#ifndef USE_WIFI
     case ARDUINO_EVENT_ETH_START:
       ETH.setHostname(MQTT_CLIENT_ID);
+      Serial.printf("[ETH] W5500 iniciado, MAC %s\n", ETH.macAddress().c_str());
       break;
+    case ARDUINO_EVENT_ETH_CONNECTED:
+      Serial.printf("[ETH] link ok %u Mbps %s, aguardando DHCP...\n",
+                    ETH.linkSpeed(), ETH.fullDuplex() ? "full" : "half");
+      break;
+#endif
     case ARDUINO_EVENT_ETH_GOT_IP:
-      ethUp = true;
-      Serial.printf("[ETH] IP %s\n", ETH.localIP().toString().c_str());
+    case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+      netUp = true;
+      Serial.printf("[" NET_NAME "] IP %s\n", NET.localIP().toString().c_str());
       break;
     case ARDUINO_EVENT_ETH_DISCONNECTED:
     case ARDUINO_EVENT_ETH_STOP:
-      ethUp = false;
-      Serial.println("[ETH] link caiu");
+    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:   // WiFi reconecta sozinho
+      if (netUp) Serial.println("[" NET_NAME "] link caiu");
+      netUp = false;
       break;
     default:
       break;
@@ -200,9 +249,14 @@ void updateDisplay() {
   display.clear();
   display.setFont(ArialMT_Plain_10);
   display.setTextAlignment(TEXT_ALIGN_LEFT);
-  display.drawString(0,  0, "GATEWAY | TELEMETRIA");
+  display.drawString(0,  0, "GATEWAY");
+  display.setTextAlignment(TEXT_ALIGN_RIGHT);
+  if (isnan(gwTemp)) snprintf(buf, sizeof(buf), "-- °C");
+  else               snprintf(buf, sizeof(buf), "%.1f °C", gwTemp);
+  display.drawString(128, 0, buf);
+  display.setTextAlignment(TEXT_ALIGN_LEFT);
   display.drawHorizontalLine(0, 12, 128);
-  display.drawString(0, 14, ethUp ? ETH.localIP().toString() : "ETH: sem link");
+  display.drawString(0, 14, netUp ? NET.localIP().toString() : NET_NAME ": sem link");
   display.setTextAlignment(TEXT_ALIGN_RIGHT);
   display.drawString(128, 14, mqtt.connected() ? "MQTT ok" : "MQTT --");
 
@@ -269,14 +323,14 @@ void publishInfo() {
   snprintf(topic, sizeof(topic), "%s/gateway/info", MQTT_TOPIC_BASE);
   snprintf(json, sizeof(json),
            "{\"uptime\":%lu,\"ip\":\"%s\",\"rx\":%lu,\"pub\":%lu,\"dup\":%lu,\"fila\":%u}",
-           millis() / 1000, ETH.localIP().toString().c_str(),
+           millis() / 1000, NET.localIP().toString().c_str(),
            (unsigned long)rxCount, (unsigned long)pubCount,
            (unsigned long)dupCount, qCount);
   mqtt.publish(topic, json, true);
 }
 
 void mqttMaintain(unsigned long now) {
-  if (!ethUp) return;
+  if (!netUp) return;
   if (mqtt.connected()) { mqtt.loop(); return; }
   if (now - lastMqttTry < MQTT_RETRY_MS) return;
   lastMqttTry = now;
@@ -293,6 +347,44 @@ void mqttMaintain(unsigned long now) {
     Serial.printf("[MQTT] falhou, rc=%d\n", mqtt.state());
   }
   updateDisplay();
+}
+
+// ══════════════════════════════════════════════════════════
+//  DS18B20
+// ══════════════════════════════════════════════════════════
+
+// Pede a conversão a cada TEMP_EVERY_MS e lê TEMP_CONV_MS depois.
+// Publica direto (sem fila): se o MQTT estiver fora, a leitura é
+// descartada — o próximo minuto traz uma nova.
+void tempMaintain(unsigned long now) {
+  static unsigned long lastReq = 0;
+  static bool pending = false;
+
+  if (!pending) {
+    if (lastReq && now - lastReq < TEMP_EVERY_MS) return;
+    tempSensor.requestTemperatures();
+    lastReq = now;
+    pending = true;
+    return;
+  }
+  if (now - lastReq < TEMP_CONV_MS) return;
+  pending = false;
+
+  float t = tempSensor.getTempCByIndex(0);
+  if (t == DEVICE_DISCONNECTED_C || t == 85.0f) {
+    Serial.printf("[TEMP] leitura invalida (%.1f)\n", t);
+    gwTemp = NAN;
+    return;
+  }
+  gwTemp = t;
+  char val[VALUE_SIZE];
+  snprintf(val, sizeof(val), "%.1f", t);
+  if (mqtt.connected() && mqtt.publish(TEMP_TOPIC, val, true)) {
+    pubCount++;
+    Serial.printf("[MQTT] %s %s\n", TEMP_TOPIC, val);
+  } else {
+    Serial.printf("[TEMP] %s C (MQTT fora, nao publicado)\n", val);
+  }
 }
 
 // ══════════════════════════════════════════════════════════
@@ -396,15 +488,42 @@ void setup() {
   display.drawString(0, 0, "GATEWAY iniciando...");
   display.display();
 
-  // ── Ethernet ──────────────────────────────────────────
+  // ── Rede ──────────────────────────────────────────────
   Network.onEvent(onNetEvent);
+#ifdef USE_WIFI
+  WiFi.mode(WIFI_STA);
+  WiFi.setHostname(MQTT_CLIENT_ID);
+  WiFi.setSleep(false);              // sem power save: MQTT responde na hora
+#ifdef USE_STATIC_IP
+  WiFi.config(IPAddress(STATIC_IP), IPAddress(STATIC_GATEWAY),
+              IPAddress(STATIC_SUBNET), IPAddress(STATIC_DNS));
+#endif
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  Serial.printf("[WiFi] conectando em \"%s\"...\n", WIFI_SSID);
+#else
   if (!ETH.begin(ETH_PHY_W5500, 1, ETH_CS, ETH_INT, ETH_RST,
                  SPI3_HOST, ETH_SCK, ETH_MISO, ETH_MOSI, ETH_SPI_MHZ)) {
     Serial.println("[ETH] W5500 nao encontrado — confira a fiacao");
   }
+#ifdef ETH_FORCE_10M
+  {
+    // speed/duplex só podem mudar com o driver parado e sem auto-negociação
+    esp_eth_handle_t h = ETH.handle();
+    bool autoneg = false;
+    eth_speed_t speed = ETH_SPEED_10M;
+    eth_duplex_t duplex = ETH_DUPLEX_HALF;
+    esp_eth_stop(h);
+    esp_eth_ioctl(h, ETH_CMD_S_AUTONEGO, &autoneg);
+    esp_eth_ioctl(h, ETH_CMD_S_SPEED, &speed);
+    esp_eth_ioctl(h, ETH_CMD_S_DUPLEX_MODE, &duplex);
+    esp_eth_start(h);
+    Serial.println("[ETH] PHY forcado em 10M half");
+  }
+#endif
 #ifdef USE_STATIC_IP
   ETH.config(IPAddress(STATIC_IP), IPAddress(STATIC_GATEWAY),
              IPAddress(STATIC_SUBNET), IPAddress(STATIC_DNS));
+#endif
 #endif
 
   // ── MQTT ──────────────────────────────────────────────
@@ -412,6 +531,13 @@ void setup() {
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setBufferSize(JSON_SIZE + TOPIC_SIZE + 16);
   mqtt.setSocketTimeout(3);
+
+  // ── DS18B20 ───────────────────────────────────────────
+  tempSensor.begin();
+  tempSensor.setResolution(12);
+  tempSensor.setWaitForConversion(false);   // não bloqueia o loop
+  Serial.printf("[TEMP] %u sensor(es) no GPIO %d\n",
+                tempSensor.getDeviceCount(), TEMP_PIN);
 
   // ── LoRa ──────────────────────────────────────────────
   RadioEvents.TxDone    = OnTxDone;
@@ -466,6 +592,7 @@ void loop() {
   }
 
   mqttMaintain(now);
+  tempMaintain(now);
 
   // ── Info periódica ────────────────────────────────────
   static unsigned long lastInfo = 0;
