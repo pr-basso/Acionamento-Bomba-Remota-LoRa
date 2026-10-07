@@ -41,7 +41,7 @@
 #define ADC_CTRL_PIN  37    // HIGH habilita o divisor na V4
 
 // ── Geometria da caixa (cm) ───────────────────────────────
-#define DIST_FUNDO_CM   180  // sensor -> fundo (caixa vazia)
+#define DIST_FUNDO_CM   150  // sensor -> fundo (caixa vazia)
 #define DIST_CHEIO_CM    30  // sensor -> água com a caixa cheia
 
 // ── Medição ───────────────────────────────────────────────

@@ -145,7 +145,7 @@ static QueuedMsg queue[QUEUE_LEN];
 static uint8_t   qHead = 0, qCount = 0;
 
 struct Source {
-  char          src[8];
+  char          src[32];
   uint16_t      seq;
   char          pay[FIELD_SIZE];   // último payload aceito
   int           rssi;

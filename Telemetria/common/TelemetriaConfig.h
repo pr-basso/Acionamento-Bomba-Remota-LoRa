@@ -28,18 +28,24 @@
 #if !defined(WIFI_LORA_32_V4)
 #error "Selecione a placa Heltec WiFi LoRa 32 V4"
 #endif
+// Sem a opção certa em Ferramentas > "LoRa FEM Type" a lib nunca liga
+// o FEM (GPIO 7/2): o rádio fica atrás de um FEM desligado e o alcance
+// cai para poucos metros, nos dois sentidos.
 #if !defined(USE_GC1109_PA) && !defined(USE_KCT8103L_PA)
-#warning "FEM da V4 nao definido (USE_GC1109_PA ou USE_KCT8103L_PA) - confira a opcao da placa"
+#error "Escolha Ferramentas > LoRa FEM Type = USE_GC1109_PA ou USE_KCT8103L_PA (conforme o chip da placa)"
+#endif
+#if defined(USE_KCT8103L_PA) && LORA_RX_LNA != 0
+#warning "LNA de RX desligado: ative Ferramentas > LoRa RX LNA = Enabled"
 #endif
 
 // ── Parâmetros LoRa ────────────────────────────────────────
 // Faixa 915–928 MHz (ANATEL). 920 MHz fica longe dos 915 MHz
 // da rede da bomba.
 #define RF_FREQUENCY          920000000
-// Potência entregue pelo SX1262. O FEM da V4 soma ganho a isso,
-// então a saída real na antena é maior. Comece baixo e suba só
-// se o link precisar (limite ANATEL: 30 dBm EIRP).
-#define TX_OUTPUT_POWER               10   // dBm no SX1262
+// Potência na saída do FEM (a lib converte para o valor do SX1262
+// conforme o FEM escolhido). Máx. da V4 ~28 dBm; limite ANATEL
+// 30 dBm EIRP — some o ganho da antena externa.
+#define TX_OUTPUT_POWER               20   // dBm na antena
 #define LORA_BANDWIDTH                0    // 0 = 125 kHz
 #define LORA_SPREADING_FACTOR         9    // ~350ms no ar para ~55 bytes
 #define LORA_CODINGRATE               1    // 1 = 4/5
