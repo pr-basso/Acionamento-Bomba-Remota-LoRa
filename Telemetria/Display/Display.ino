@@ -66,6 +66,7 @@ using namespace esp_panel::drivers;
 #define STALE_MS   (25UL * 60 * 1000)       // 2,5x o SLEEP_MINUTES do SensorNivel
 #define UI_EVERY_MS        500              // junta as mensagens de uma leitura
 #define AGE_EVERY_MS     10000              // atualiza "x min" e relógio
+#define TOUCH_RELEASE_MS    80              // sem ponto por mais que isso = soltou
 
 // ── Bateria Li 1S (mesma escala do Controle Lotes) ────────
 #define VBAT_EMPTY  3.3f
@@ -248,15 +249,23 @@ void flushCb(lv_display_t *disp, const lv_area_t *a, uint8_t *px) {
   lv_display_flush_ready(disp);
 }
 
+// O GT911 responde "0 pontos" quando ainda não tem amostra nova, mesmo
+// com o dedo na tela. Sem segurar o último ponto por TOUCH_RELEASE_MS,
+// um arrasto vira vários toques curtos (abre o detalhe em vez de rolar).
 void touchCb(lv_indev_t *, lv_indev_data_t *data) {
+  static lv_point_t    last;
+  static unsigned long lastSeen = 0;
+  static bool          down = false;
   TouchPoint p;
   if (touch && touch->readPoints(&p, 1, 0) > 0) {
-    data->point.x = p.x;
-    data->point.y = p.y;
-    data->state   = LV_INDEV_STATE_PRESSED;
-  } else {
-    data->state = LV_INDEV_STATE_RELEASED;
+    last.x = p.x; last.y = p.y;
+    lastSeen = millis();
+    down = true;
+  } else if (down && millis() - lastSeen > TOUCH_RELEASE_MS) {
+    down = false;
   }
+  data->point = last;
+  data->state = down ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
 }
 
 uint32_t tickCb() { return millis(); }
