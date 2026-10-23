@@ -19,3 +19,4 @@ memory/
 
 # Telemetria — credenciais
 Telemetria/Gateway/secrets.h
+Telemetria/Display/secrets.h

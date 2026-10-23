@@ -66,6 +66,7 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include "TelemetriaConfig.h"   // rádio + protocolo compartilhados (../common)
+#include "TelemetriaUnits.h"    // unidades do display (../common)
 #include "secrets.h"            // broker MQTT (não versionado)
 
 // ── Identificação ──────────────────────────────────────────
@@ -103,16 +104,6 @@
 
 // ── Sensores conhecidos (dedup + display) ─────────────────
 #define MAX_SOURCES 16
-
-// Unidade de cada chave, só para o display (o MQTT leva o número puro).
-// Chave fora da tabela aparece sem unidade.
-struct Unit { const char *key; const char *unit; };
-static const Unit UNITS[] = {
-  { "pct",   "%"  }, { "dist", "cm" }, { "nivel", "cm" },
-  { "temp",  "°C" }, { "umid", "%"  },
-  { "va",    "V"  }, { "vb",   "V"  }, { "vc",    "V"  },
-  { "vbat",  "V"  },
-};
 
 static char rxBuf[BUFFER_SIZE];
 static RadioEvents_t RadioEvents;
@@ -213,11 +204,6 @@ void onNetEvent(arduino_event_id_t event) {
 // ══════════════════════════════════════════════════════════
 //  DISPLAY
 // ══════════════════════════════════════════════════════════
-
-const char *unitFor(const char *key) {
-  for (const Unit &u : UNITS) if (strcmp(u.key, key) == 0) return u.unit;
-  return "";
-}
 
 // "pct=62;dist=87;vbat=3.98" -> vals "62% 87cm", bat "3.98V".
 // err=<motivo> vira "ERRO <motivo>"; err=ok é omitido.
